@@ -2,6 +2,8 @@
 
 #include "table/table_page.h"
 
+#include <iostream>
+
 namespace huadb {
 
 Table::Table(BufferPool &buffer_pool, LogManager &log_manager, oid_t oid, oid_t db_oid, ColumnList column_list,
@@ -37,7 +39,37 @@ Rid Table::InsertRecord(std::shared_ptr<Record> record, xid_t xid, cid_t cid, bo
   // 找到空间足够的页面后，通过 TablePage 插入记录
   // 返回插入记录的 rid
   // LAB 1 BEGIN
-  return {0, 0};
+  std::shared_ptr<huadb::TablePage> tablePage = nullptr;
+  huadb::pageid_t curPageId = this->first_page_id_;
+  if (curPageId == NULL_PAGE_ID) {
+    tablePage = std::make_shared<huadb::TablePage>(buffer_pool_.NewPage(this->db_oid_, this->oid_, 0));
+    curPageId = 0;
+    tablePage->Init();
+    tablePage->SetNextPageId(NULL_PAGE_ID);
+    this->first_page_id_ = 0;
+  } else {
+    tablePage = std::make_shared<huadb::TablePage>(buffer_pool_.GetPage(this->db_oid_, this->oid_, curPageId));
+  }
+  while (tablePage->GetFreeSpaceSize() < record->GetSize())
+  {
+    huadb::pageid_t nextPageId = tablePage->GetNextPageId();
+    if (nextPageId == NULL_PAGE_ID) {
+      huadb::pageid_t newPageId = curPageId + 1;
+      std::shared_ptr<huadb::Page> newPage = buffer_pool_.NewPage(this->db_oid_, this->oid_, newPageId);
+      tablePage->SetNextPageId(newPageId);
+      curPageId = newPageId;
+      tablePage = std::make_shared<huadb::TablePage>(newPage);
+      tablePage->Init();
+      break;
+    }
+    tablePage = std::make_shared<huadb::TablePage>(buffer_pool_.GetPage(this->db_oid_, this->oid_, nextPageId));
+    curPageId = nextPageId;
+  }
+  
+  return {
+    curPageId,
+    tablePage->InsertRecord(record, xid, cid)
+  };
 }
 
 void Table::DeleteRecord(const Rid &rid, xid_t xid, bool write_log) {
@@ -47,6 +79,10 @@ void Table::DeleteRecord(const Rid &rid, xid_t xid, bool write_log) {
 
   // 使用 TablePage 操作页面
   // LAB 1 BEGIN
+  auto tablePage = std::make_shared<TablePage>(
+    buffer_pool_.GetPage(db_oid_, this->oid_, rid.page_id_)
+  );
+  tablePage->DeleteRecord(rid.slot_id_, xid);
 }
 
 Rid Table::UpdateRecord(const Rid &rid, xid_t xid, cid_t cid, std::shared_ptr<Record> record, bool write_log) {

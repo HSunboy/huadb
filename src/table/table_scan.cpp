@@ -17,7 +17,21 @@ std::shared_ptr<Record> TableScan::GetNextRecord(xid_t xid, IsolationLevel isola
   // 扫描结束时，返回空指针
   // 注意处理扫描空表的情况（rid_.page_id_ 为 NULL_PAGE_ID）
   // LAB 1 BEGIN
-  return nullptr;
+  if (this->rid_.page_id_ == NULL_PAGE_ID) {
+    return nullptr;
+  }
+  std::shared_ptr<huadb::TablePage> tablePage = std::make_shared<TablePage>(this->buffer_pool_.GetPage(this->table_->GetDbOid(), this->table_->GetOid(), this->rid_.page_id_));
+  auto record = tablePage->GetRecord(this->rid_, this->table_->GetColumnList());
+  if (this->rid_.slot_id_ + 1 == tablePage->GetRecordCount()) {
+    this->rid_.page_id_ = tablePage->GetNextPageId();
+    this->rid_.slot_id_ = 0;
+  } else {
+    this->rid_.slot_id_++;
+  }
+  if (record->IsDeleted()) {
+    return GetNextRecord(xid, isolation_level, cid, active_xids);
+  }
+  return record;
 }
 
 }  // namespace huadb
